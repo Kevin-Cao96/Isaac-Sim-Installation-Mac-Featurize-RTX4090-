@@ -1,6 +1,6 @@
 # Isaac Sim 远程 GUI 方案 (VNC)
 
-> 适用场景：云服务器（featurize.cn 等）上运行 Isaac Sim，在本机 MacBook 上看 GUI
+> 适用场景：在无显示器的远程服务器上运行 Isaac Sim，在本机通过 VNC 查看 GUI（支持 Windows / macOS / Linux）
 
 ---
 
@@ -12,7 +12,7 @@ Isaac Sim 官方推荐用 **WebRTC Streaming Client**（信号走 TCP 49100，�
 
 | 方案 | 原因 |
 |---|---|
-| 直连公网 IP + 端口 | featurize 防火墙拦截 |
+| 直连公网 IP + 端口 | 云服务器防火墙拦截 |
 | VS Code PORTS 面板 | 只支持 TCP 转发，WebRTC 需要 UDP |
 | socat 桥接 UDP↔TCP | 端口绑定/转发链路复杂，不稳定 |
 | SSH -L 隧道 | 同样只支持 TCP |
@@ -26,7 +26,7 @@ VNC 全程走 **TCP 5900**，SSH 隧道可以完美转发，稳定可靠。
 ## 整体架构
 
 ```
-你的 MacBook                         featurize 云服务器
+你的本机                             远程服务器
 ┌─────────────────┐      SSH 隧道      ┌────────────────────────┐
 │ VNC 客户端       │ ─── TCP 5900 ───→ ｜ x11vnc                ｜
 │ (macOS 屏幕共享) ｜                   │   ↓                   ｜
@@ -44,11 +44,13 @@ VNC 全程走 **TCP 5900**，SSH 隧道可以完美转发，稳定可靠。
 
 ## 第一步：首次安装（服务器，仅一次）
 
-### 1.1 连接 VS Code Remote SSH
+### 1.1 SSH 连接服务器
 
-VS Code → Cmd+Shift+P → `Remote-SSH: Connect to Host` →
-输入 `ssh featurize@workspace.featurize.cn -p <你的端口>`
-输入密码连上
+```bash
+ssh <用户名>@<服务器IP> -p <端口>
+```
+
+> 建议使用 VS Code Remote SSH：`Cmd+Shift+P` → `Remote-SSH: Connect to Host` → 输入 SSH 命令
 
 ### 1.2 安装系统依赖
 
@@ -66,7 +68,8 @@ sudo apt-get install -y xvfb x11vnc fluxbox
 ```bash
 cd ~
 
-# 下载（约 12G，约 3 分钟）
+# 下载（约 12G）
+# 根据你的架构选择：x86_64 或 aarch64
 wget -O isaac-sim-standalone-6.0.1-linux-x86_64.zip \
   "https://downloads.isaacsim.nvidia.com/isaac-sim-standalone-6.0.1-linux-x86_64.zip"
 
@@ -80,6 +83,8 @@ cd ~/isaacsim && ./post_install.sh
 
 > 如果下载被代理拦截，加上 `--no-proxy`：
 > `wget --no-proxy -O ...`
+
+> **Windows 服务器**：安装步骤相同，启动脚本改为 `isaac-sim.bat`。VNC 服务器推荐使用 [TightVNC](https://www.tightvnc.com/) 或 [UltraVNC](https://www.uvnc.com/)。
 
 ---
 
@@ -107,7 +112,7 @@ chmod +x setup_isaac_vnc.sh
 先在本机 Mac 上下载脚本：
 
 ```bash
-# 在本机 Mac 终端
+# 在本机终端
 cd ~/Downloads
 wget -O setup_isaac_vnc.sh   "https://raw.githubusercontent.com/Kevin-Cao96/Isaac-Sim-Installation-Mac-Featurize-RTX4090-/main/setup_isaac_vnc.sh"
 ```
@@ -115,7 +120,7 @@ wget -O setup_isaac_vnc.sh   "https://raw.githubusercontent.com/Kevin-Cao96/Isaa
 然后传到服务器（替换 `<端口>` 为你的 SSH 端口）：
 
 ```bash
-scp -P <端口> ~/Downloads/setup_isaac_vnc.sh featurize@workspace.featurize.cn:~/isaacsim/
+scp -P <端口> ~/Downloads/setup_isaac_vnc.sh <用户名>@<服务器IP>:~/isaacsim/
 ```
 
 **方式 C：直接在服务器上用 cat 创建**
@@ -191,34 +196,42 @@ DISPLAY=:99 ./isaac-sim.sh
 
 ---
 
-## 第三步：连接 GUI（本机 MacBook）
+## 第三步：连接 GUI（本机）
 
-### 3.1 建立 SSH 隧道
-
-打开 MacBook 的本机终端，运行：
+### 3.1 建立 SSH 隧道（支持 Windows / macOS / Linux）
 
 ```bash
-ssh -L 5900:localhost:5900 featurize@workspace.featurize.cn -p <你的端口>
+ssh -L 5900:localhost:5900 <用户名>@<服务器IP> -p <端口>
 ```
 
 输入服务器密码，**保持这个窗口开着**（关闭即断连）。
 
-如果 VS Code 的 PORTS 面板能正常工作，也可以直接在 VS Code 底部添加 5900 端口，就不需要这条命令。
+> VS Code 用户：也可以直接在底部 PORTS 面板添加 5900 端口实现转发。
+> Windows 用户：需要安装 [OpenSSH 客户端](https://learn.microsoft.com/zh-cn/windows-server/administration/openssh/openssh_install_firstuse) 或使用 PowerShell 内置的 SSH。
 
 ### 3.2 打开 VNC 客户端
 
-保持隧道窗口开着，**新开一个 Mac 终端**：
+保持 SSH 隧道窗口开着，根据你的系统选择连接方式：
 
+**macOS：**
 ```bash
 open vnc://127.0.0.1:5900
 ```
+或者 Finder → 前往 → 连接服务器 → `vnc://127.0.0.1:5900`
 
-或者：Safari 菜单 → 前往 → 连接服务器 → `vnc://127.0.0.1:5900`
+**Windows：**
+安装 [VNC Viewer](https://www.realvnc.com/en/connect/download/viewer/)（RealVNC 免费版），连接 `127.0.0.1:5900`
 
-成功后就能在 Mac 上看到 Isaac Sim 的完整 GUI 了（场景编辑器、属性面板、视口渲染等）。
+**Linux：**
+```bash
+vncviewer 127.0.0.1:5900
+```
 
-> 如果弹出密码框，直接点连接（留空）。如果要求密码，修改 x11vnc 命令：
-> `x11vnc -display :99 -forever -rfbport 5900 -passwd 你的密码 &`
+如果弹出密码框，直接点连接（留空）。如果要求密码：
+```bash
+# 在服务器上设置 VNC 密码
+x11vnc -display :99 -forever -rfbport 5900 -passwd 你的密码 &
+```
 
 ---
 
@@ -295,7 +308,7 @@ pkill x11vnc && x11vnc -display :99 -forever -nopw -rfbport 5900 &
 
 ### Q：为什么不直接公网 IP 连 VNC？
 
-featurize 的防火墙默认拦截所有非 SSH/Jupyter 的入站端口，控制台也没有开放自定义端口映射的入口。
+大多数云服务器厂商（如 AWS、阿里云、腾讯云、featurize 等）默认防火墙会拦截非 SSH 的入站端口。需要在云控制台的「安全组」或「防火墙」中开放入站端口 5900，但这会带来安全风险。SSH 隧道是更安全的选择。
 
 ---
 
