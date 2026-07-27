@@ -87,14 +87,70 @@ cd ~/isaacsim && ./post_install.sh
 
 ### 2.1 一键启动脚本
 
-把 `setup_isaac_vnc.sh` 传到服务器上：
+> **注意：`setup_isaac_vnc.sh` 不包含在 Isaac Sim 安装包里，需要单独获取。**
+> 这也是为什么直接跑 `./setup_isaac_vnc.sh` 会报 "no such file or directory"。
+
+有三种方式获取脚本：
+
+**方式 A：直接从 GitHub 下载到服务器**
+
+在服务器的 VS Code 终端里运行（首次使用时执行一次即可）：
 
 ```bash
-# 在你本机 Mac 终端传文件
-scp -P <端口> /path/to/setup_isaac_vnc.sh featurize@workspace.featurize.cn:~/isaacsim/
+cd ~/isaacsim
+wget -O setup_isaac_vnc.sh   "https://raw.githubusercontent.com/Kevin-Cao96/Isaac-Sim-Installation-Mac-Featurize-RTX4090-/main/setup_isaac_vnc.sh"
+chmod +x setup_isaac_vnc.sh
 ```
 
-然后在服务器的 VS Code 终端里：
+**方式 B：本机下载后 scp 上传**
+
+先在本机 Mac 上下载脚本：
+
+```bash
+# 在本机 Mac 终端
+cd ~/Downloads
+wget -O setup_isaac_vnc.sh   "https://raw.githubusercontent.com/Kevin-Cao96/Isaac-Sim-Installation-Mac-Featurize-RTX4090-/main/setup_isaac_vnc.sh"
+```
+
+然后传到服务器（替换 `<端口>` 为你的 SSH 端口）：
+
+```bash
+scp -P <端口> ~/Downloads/setup_isaac_vnc.sh featurize@workspace.featurize.cn:~/isaacsim/
+```
+
+**方式 C：直接在服务器上用 cat 创建**
+
+```bash
+cat > ~/isaacsim/setup_isaac_vnc.sh << 'SCRIPT'
+#!/bin/bash
+set -e
+ISAAC_DIR="$HOME/isaacsim"
+VNC_PORT=5900
+DISPLAY_NUM=99
+
+echo "===== Step 1: 创建虚拟显示器 ====="
+kill $(pgrep Xvfb) 2>/dev/null || true
+sleep 1
+Xvfb :$DISPLAY_NUM -screen 0 1920x1080x24 +extension GLX +render &
+sleep 1
+export DISPLAY=:$DISPLAY_NUM
+
+echo "===== Step 2: 启动窗口管理器 ====="
+fluxbox &
+
+echo "===== Step 3: 启动 VNC 服务器 ====="
+kill $(pgrep x11vnc) 2>/dev/null || true
+sleep 1
+x11vnc -display :$DISPLAY_NUM -forever -nopw -rfbport $VNC_PORT &
+
+echo "===== Step 4: 启动 Isaac Sim ====="
+cd "$ISAAC_DIR"
+DISPLAY=:$DISPLAY_NUM ./isaac-sim.sh
+SCRIPT
+chmod +x ~/isaacsim/setup_isaac_vnc.sh
+```
+
+脚本就位后，以后每次启动只需要在服务器的 VS Code 终端里运行：
 
 ```bash
 cd ~/isaacsim && ./setup_isaac_vnc.sh
