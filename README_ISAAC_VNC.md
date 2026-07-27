@@ -4,22 +4,26 @@
 
 ---
 
-## 为什么不用 WebRTC Streaming Client？
+## 两种方案对比
 
-Isaac Sim 官方推荐用 **WebRTC Streaming Client**（信号走 TCP 49100，视频流走 UDP 47998），但云服务器通常不开放 UDP 端口，而 SSH / VS Code 的端口转发只支持 TCP，所以 WebRTC 媒体流出不来（黑屏）。
+Isaac Sim 的远程 GUI 有两种方案，取决于你的云服务器是否支持开放 UDP 端口。
 
-**失败的尝试：**
+### 方案 A：WebRTC Streaming Client（推荐，需要 UDP）
 
-| 方案 | 原因 |
-|---|---|
-| 直连公网 IP + 端口 | 云服务器防火墙拦截 |
-| VS Code PORTS 面板 | 只支持 TCP 转发，WebRTC 需要 UDP |
-| socat 桥接 UDP↔TCP | 端口绑定/转发链路复杂，不稳定 |
-| SSH -L 隧道 | 同样只支持 TCP |
+官方推荐的方案。信号走 TCP 49100，视频流走 UDP 47998。
+- **需要云平台开放 UDP 端口**（阿里云、腾讯云、AWS 等支持）
+- **延迟低、画质好**（NVENC 硬编码）
+- 本机安装 Streaming Client 直连，不经过 SSH 隧道
 
-**最终方案：VNC**
+### 方案 B：VNC + SSH 隧道（备选，只需 TCP）
 
-VNC 全程走 **TCP 5900**，SSH 隧道可以完美转发，稳定可靠。
+当云平台**不开放 UDP 端口**时（如 featurize），用 VNC 替代。
+- 全程 TCP 5900，SSH 隧道即可转发
+- 画质一般，有延迟
+- 适合开发和调试
+
+> 如果你用的是阿里云 ECS / 腾讯云 / AWS 等主流云平台，**建议直接走方案 A（WebRTC）**。
+> 如果云平台没有安全组或端口映射功能（如 featurize），走方案 B（VNC）。
 
 ---
 
@@ -298,17 +302,18 @@ Xvfb 创建了一个编号为 `:99` 的虚拟显示器。所有需要显示 GUI 
 pkill x11vnc && x11vnc -display :99 -forever -nopw -rfbport 5900 &
 ```
 
-### Q：为什么不用 WebRTC 了？
+### Q：为什么在 featurize 上不能用 WebRTC？
 
 - WebRTC 视频流走 **UDP** 端口
+- featurize 控制台没有开放自定义端口的功能
 - SSH 隧道和 VS Code 端口转发只支持 **TCP**
-- featurize 控制台没有对外暴露 UDP 端口的功能
-- 即使用 socat 桥接 UDP↔TCP，链路不稳定且画面黑屏
-- VNC 全程走 **TCP**，SSH 隧道完美支持，画面稳定
+- 所以只能退而求其次用 VNC
+
+> 阿里云 ECS、腾讯云等主流云平台有安全组功能，可以开放 UDP 端口，直接走 WebRTC。
 
 ### Q：为什么不直接公网 IP 连 VNC？
 
-大多数云服务器厂商（如 AWS、阿里云、腾讯云、featurize 等）默认防火墙会拦截非 SSH 的入站端口。需要在云控制台的「安全组」或「防火墙」中开放入站端口 5900，但这会带来安全风险。SSH 隧道是更安全的选择。
+云服务器默认防火墙会拦截非 SSH 的入站端口。如果有安全组功能（阿里云等），可以开 5900 直连，但 VNC 本身不加密，SSH 隧道更安全。推荐直接用 WebRTC（如果云平台支持 UDP）。
 
 ---
 
