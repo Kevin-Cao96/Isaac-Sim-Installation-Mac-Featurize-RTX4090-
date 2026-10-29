@@ -21,7 +21,7 @@
 - **便宜优先且可随时重装**：AutoDL 容器，按小时计费，关机不收费。
 - **需要长期稳定环境**：阿里云 ECS，避免抢占式实例被强制回收导致数据丢失。
 - **需要完整系统权限/裸机行为**：AutoDL Ubuntu-Nvidia 虚机（用户 `ubuntu`，用 `sudo -i` 提权）。
-- **需要远程看 GUI**：云服务器默认无显示器，需配合 RTX Streaming 或 VNC（见第五章）。
+- **需要远程看 GUI**：云服务器默认无显示器，需配合 RTX Streaming 或 VNC（见第五章）。AutoDL 容器里的 VNC 桌面可以登录，但不保证能提供 Isaac Sim 所需的 RTX Vulkan surface，优先使用 Streaming。
 - **注意**：AutoDL 容器支付可能要求高校认证/高校邮箱；抢占式实例在资源紧张时会被强制回收，系统盘数据会清空。
 
 ---
@@ -203,14 +203,14 @@ rtx driver verification failed
 
 说明：headless 物理仿真不受影响；**RTX 渲染（GUI、流媒体、摄像头截图）会失败**。
 
-解决（需要跑 GUI 时）：升级 NVIDIA 驱动到 580+。推荐用 apt：
+解决（**仅适用于完整虚机/裸机，不适用于 AutoDL 容器**）：切换到 Isaac Sim 6.0.1 兼容的驱动分支。不要盲目安装“最新版”；更高主版本不一定兼容当前 Isaac Sim：
 
 ```bash
-# 查找可用驱动版本
-apt-cache search nvidia-driver | grep -E "^nvidia-driver-[0-9]+" | tail -10
+# 查看兼容分支（以启动日志推荐版本和 NVIDIA 官方兼容表为准）
+apt-cache policy nvidia-driver-580
 
-# 安装最新版（如 nvidia-driver-610）
-apt install -y nvidia-driver-610
+# 安装合适的 580 分支包
+apt install -y nvidia-driver-580
 
 # 重启
 reboot
@@ -226,6 +226,7 @@ nvidia-smi | head -4
 - 云服务器装驱动可能短暂断连，SSH 断开属正常，等待 1-2 分钟重连。
 - 若实例 IP/端口变化，以平台控制台显示为准。
 - NVIDIA 官网手动下载 .run 文件常遇到 403/无效链接，apt 是最稳的路径。
+- **AutoDL 容器不要执行上面的驱动安装命令。** 容器使用宿主机的 NVIDIA 驱动，容器内安装内核驱动既不能替换宿主机版本，也可能破坏环境。驱动不兼容时更换平台镜像/实例，或改用 headless + Streaming。
 
 ### 4.8 抢占式实例被强制回收
 
@@ -247,6 +248,50 @@ nvidia-smi | head -4
 ```bash
 cd ~/IsaacLab && bash isaaclab.sh -p <script.py> --headless
 ```
+
+### 4.11 `advanceCurrentFrame: backbuffers are not initialized!`
+
+这个报错通常不是 `backbuffers` 自身没有初始化，而是前面的 Vulkan 交换链创建失败，
+渲染器又继续推进帧导致的连续症状。完整日志常见为：
+
+```
+[carb.graphics-vulkan.plugin] vkCreateSwapchainKHR failed.
+[omni.kit.renderer.plugin] createSwapchain failed.
+[omni.kit.renderer.plugin] resize: failed to create swapchain resources
+[omni.kit.renderer.plugin] advanceCurrentFrame: backbuffers are not initialized!
+```
+
+原因通常是以下之一：
+
+- 在容器、Xvfb 或 VNC 里启动 GUI，但 Vulkan 没有拿到可呈现的显示 surface。
+- 系统实际使用 Mesa `llvmpipe` / `lavapipe`，没有走 NVIDIA GPU。
+- 容器没有正确透传 GPU/驱动库，或 NVIDIA 用户态驱动与内核模块不匹配。
+- Isaac Sim 6.0.1 与当前驱动的兼容性不匹配。
+
+先判断是“渲染链路”问题还是“安装”问题。下面这条命令能正常结束，说明 standalone 安装和 headless 物理仿真基本可用：
+
+```bash
+cd ~/isaacsim && ./python.sh standalone_examples/tutorials/getting_started/getting_started.py --headless
+```
+
+再检查 GPU 和 Vulkan 是否选中 NVIDIA：
+
+```bash
+nvidia-smi
+apt install -y vulkan-tools
+DISPLAY=:99 vulkaninfo --summary 2>&1 | grep -E "deviceName|driverName|driverInfo"
+```
+
+输出中应出现 NVIDIA GPU 和 NVIDIA Vulkan 驱动。若出现 `llvmpipe`、`lavapipe`、`Mesa` 或找不到 GPU，先修复驱动/容器透传，不要继续排查 Isaac Lab。若 VNC 使用的是其他显示号，把 `DISPLAY=:99` 改成实际值。
+
+处理顺序：
+
+1. **首选 RTX Streaming。** 停掉 Xvfb/VNC 启动的 Isaac Sim，改用第五章的 `isaac-sim.streaming.sh`。这是无显示器服务器上受支持的 RTX/GUI 路径。
+2. **不要用 16 位 Xvfb。** 本仓库的 `setup_isaac_vnc.sh` 已改为 `1280x720x24`。更新脚本后结束旧进程并重跑；仍报同一错误时不要继续重试 VNC，直接切到 Streaming。
+3. **容器环境检查透传。** 容器必须能同时看到 GPU、NVIDIA 驱动库和 Vulkan ICD；通常需要 `--gpus all` 和 `NVIDIA_DRIVER_CAPABILITIES=all`。`nvidia-smi` 正常但 `vulkaninfo` 只显示 Mesa，仍然不能运行 RTX GUI。
+4. **驱动按 Isaac Sim 6.0.1 兼容版本处理。** 完整虚机/裸机可以按官方兼容表升级或降级 Driver 后重启；AutoDL 容器不能改宿主机驱动，应更换兼容实例/镜像，或使用 Streaming。
+
+注意：headless 训练不需要创建窗口或 swapchain，因此可能出现“训练正常，但 VNC/Streaming 黑屏并报 backbuffers”的情况；这不代表 Isaac Lab 安装损坏。
 
 ---
 
@@ -293,19 +338,24 @@ cd ~/isaacsim && OMNI_KIT_ALLOW_ROOT=1 ./isaac-sim.streaming.sh \
 
 ### 5.2 VNC（备选方案）
 
-在服务器上装图形桌面 + VNC Server，本地用 VNC Viewer 连接整个桌面，再在桌面里启动 Isaac Sim。
+VNC 适合偶尔查看桌面。它使用虚拟 X11 显示，**不是 Omniverse RTX Streaming 的等价替代**；出现 4.11 的 Vulkan/backbuffers 错误时应切回 5.1。
+
+AutoDL 容器尤其要注意：VNC 能进入桌面只说明 X11/VNC 正常，不代表 Vulkan 能用 RTX 4090 创建可呈现的 surface。若只需操作文件和终端，用 SSH 即可；需要 Isaac Sim 的 3D GUI，应启动 headless streaming。
+
+使用仓库脚本时，先安装依赖：
 
 ```bash
-# 服务器端
-apt install -y xfce4 xfce4-goodies tigervnc-standalone-server tigervnc-common
-vncpasswd            # 设置 VNC 密码
-vncserver :1         # 启动，端口 5901
-
-# 本地连接
-# VNC Viewer 连 服务器IP:5901，进入桌面后启动 Isaac Sim GUI
+apt install -y xvfb fluxbox x11vnc
+VNC_PASSWD='设置一个强密码' ./setup_isaac_vnc.sh
 ```
 
-优点：看到完整桌面；缺点：占用资源大、画面延迟高，不如 Streaming 流畅。RTX Streaming 更适合仿真场景。
+脚本默认监听 `5900`，虚拟显示为 `:99` 且使用 24 位色深。在本地另开终端建立 SSH 隧道：
+
+```bash
+./connect_isaac_vnc.sh <用户名> <服务器地址> <SSH端口>
+```
+
+然后用 VNC Viewer 连接 `localhost:5900`。VNC 占用资源较大、画面延迟高，RTX Streaming 更适合仿真场景。
 
 ### 5.3 选择建议
 
