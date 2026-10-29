@@ -301,22 +301,45 @@ DISPLAY=:99 vulkaninfo --summary 2>&1 | grep -E "deviceName|driverName|driverInf
 
 ### 5.1 Omniverse RTX Streaming（推荐，官方方案）
 
-原理：服务器用 `isaac-sim.streaming.sh` 启动带流媒体的 Kit 应用，客户端用 Omniverse Streaming Client 连接观看。
+优云智算实例的完整部署步骤见：
+
+[优云智算 Isaac Sim WebRTC 部署教程](./YOUYUN_ISAAC_SIM_WEBRTC.md)
+
+原理：服务器用 `isaac-sim.streaming.sh` 启动 headless Kit 应用，客户端用
+Isaac Sim WebRTC Streaming Client 连接观看。
 
 **服务器端启动：**
 
+一键启动（推荐）：
+
 ```bash
-cd ~/isaacsim && OMNI_KIT_ALLOW_ROOT=1 ./isaac-sim.streaming.sh
+PUBLIC_IP="<实例公网IP>" ./start_isaac_webrtc.sh
+```
+
+脚本会检查 GPU、驱动和 Isaac Sim 路径，并带入 signaling/media 端口参数。
+
+手动启动：
+
+```bash
+cd ~/isaacsim
+PUBLIC_IP="<实例公网IP>"
+
+OMNI_KIT_ALLOW_ROOT=1 ./isaac-sim.streaming.sh \
+  --/exts/omni.kit.livestream.app/primaryStream/publicIp="${PUBLIC_IP}" \
+  --/exts/omni.kit.livestream.app/primaryStream/signalPort=49100 \
+  --/exts/omni.kit.livestream.app/primaryStream/streamPort=47998
 ```
 
 - 如果以 root 运行，必须加 `OMNI_KIT_ALLOW_ROOT=1`，否则报错：
   `Omniverse Kit cannot be run as the root user without the --allow-root flag`。
 - 启动成功后日志会显示 `Isaac Sim Full Streaming App is loaded.` 和 `app ready`。
+- WebRTC 需要放行 `49100/TCP`（signaling）和 `47998/UDP`（media stream）；
+  只放行 TCP 会出现客户端能连接但没有画面的情况。
 
 **客户端连接：**
 
-1. 在本地电脑安装 **Omniverse Streaming Client**（NVIDIA 官网下载，支持 Windows/macOS）。
-2. 打开 Streaming Client，输入服务器 IP 和端口（默认 `47911` 或页面提示的端口）。
+1. 在本地电脑安装 **Isaac Sim WebRTC Streaming Client**（NVIDIA 官网下载，支持 Windows/macOS/Linux）。
+2. 打开 Streaming Client，输入服务器公网 IP。
 3. 连接后即可看到 Isaac Sim 的完整 GUI。
 
 **在流媒体画面里跑自己的脚本：**
@@ -333,8 +356,9 @@ cd ~/isaacsim && OMNI_KIT_ALLOW_ROOT=1 ./isaac-sim.streaming.sh \
 
 - **普通 standalone 脚本（自己创建 `SimulationApp`）无法直接显示在流媒体画面里**——流媒体是独立进程，两者不互通。
 - 要在流媒体画面里看效果，要么用 Script Editor，要么把脚本改成不创建 `SimulationApp` 的形式。
-- 流媒体（RTX 渲染）需要驱动 580+（见 4.7），否则黑屏或报 `rtx driver verification failed`。
-- 需要在云平台安全组/防火墙放行对应端口。
+- 流媒体（RTX 渲染）需要使用与 Isaac Sim 6.0.1 兼容的驱动（见 4.7）。
+- 需要在云平台安全组/防火墙放行 `49100/TCP` 和 `47998/UDP`；Docker Compose
+  浏览器版查看器还需要 `8210/TCP`。
 
 ### 5.2 VNC（备选方案）
 
